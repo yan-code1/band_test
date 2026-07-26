@@ -1,0 +1,47 @@
+# ── Build output ────────────────────────────────────────────
+build/
+out/
+bin/
+*.exe
+*.exe.motif
+*.ilk
+*.pdb
+*.obj
+*.lib
+*.dll
+
+# ── IDE & Editor ────────────────────────────────────────────
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.vcxproj.*.user
+CMakeSettings.json
+
+# ── OS ───────────────────────────────────────────────────────
+Thumbs.db
+.DS_Store
+*.swp
+*.swo
+*~
+
+# ── CMake ────────────────────────────────────────────────────
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+CTestTestfile.cmake
+
+# ── Third-party downloads (generated) ───────────────────────
+third_party/*.tar.gz
+third_party/*.zip
+
+# ── Docs generated ──────────────────────────────────────────
+docs/brainstorms/
+docs/plans/
+
+# ── Memory (Claude) ─────────────────────────────────────────
+.claude/
