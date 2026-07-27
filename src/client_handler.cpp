@@ -179,7 +179,10 @@ void run_client(const Config& cfg) {
             IntervalSnapshot snap;
             snap.stream_id = 1;
             snap.start_sec = static_cast<double>(interval_num * cfg.interval_sec);
-            snap.end_sec   = snap.start_sec + actual_dur;
+            // Use the configured duration as end label so the trailing
+            // interval shows e.g. "4.00-5.00 sec" matching user expectations.
+            // The bitrate still uses actual_dur so it remains accurate.
+            snap.end_sec   = static_cast<double>(cfg.duration_sec);
             snap.bytes     = interval_bytes;
             snap.bits_per_second = actual_dur > 0
                 ? static_cast<uint64_t>(static_cast<double>(interval_bytes * 8) / actual_dur)
