@@ -14,7 +14,7 @@ struct ProtocolHeader {
     uint32_t magic;         // 0x4E424E54 = "NBNT"
     uint8_t  version;       // 0x01
     uint8_t  msg_type;      // 0=data, 1=start, 2=finish, 3=result
-    uint16_t flags;         // bit0=reverse(保留), bit1-15=0
+    uint16_t flags;         // reserved, set to 0
     uint32_t packet_id;     // sequence number (1+ for data, 0 for control)
     uint32_t timestamp_sec; // Unix timestamp (UTC seconds)
     uint32_t timestamp_nsec;// Nanoseconds within the second

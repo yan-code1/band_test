@@ -226,9 +226,5 @@ void Reporter::write_terminal(const std::string& line) {
     }
 }
 
-void Reporter::flush() {
-    std::cout.flush();
-    if (logfile_) logfile_->flush();
-}
 
 } // namespace nb

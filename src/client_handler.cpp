@@ -148,7 +148,7 @@ void run_client(const Config& cfg) {
 
             // Check for ICMP error
             int err = sock->check_error();
-            if (err != 0 && err != WSAEWOULDBLOCK) {
+            if (err != 0) {
                 reporter->report_error("ICMP error: server may be unreachable");
                 test_completed.store(true, std::memory_order_release);
                 break;

@@ -42,7 +42,6 @@ private:
     bool json_started_ = false;
 
     void write_terminal(const std::string& line);
-    void flush();
 };
 
 } // namespace nb
