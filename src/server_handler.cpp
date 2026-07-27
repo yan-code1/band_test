@@ -15,6 +15,27 @@
 
 namespace nb {
 
+/// Compare two sockaddr_storage values by address family, address, and port.
+/// Uses the correct sockaddr_in/sockaddr_in6 sizes to avoid comparing
+/// uninitialized padding bytes that memcmp would include.
+static bool sockaddr_equal(const sockaddr_storage& a,
+                            const sockaddr_storage& b) noexcept {
+    if (a.ss_family != b.ss_family) return false;
+    if (a.ss_family == AF_INET) {
+        auto& a4 = reinterpret_cast<const sockaddr_in&>(a);
+        auto& b4 = reinterpret_cast<const sockaddr_in&>(b);
+        return a4.sin_port == b4.sin_port &&
+               a4.sin_addr.s_addr == b4.sin_addr.s_addr;
+    }
+    if (a.ss_family == AF_INET6) {
+        auto& a6 = reinterpret_cast<const sockaddr_in6&>(a);
+        auto& b6 = reinterpret_cast<const sockaddr_in6&>(b);
+        return a6.sin6_port == b6.sin6_port &&
+               std::memcmp(&a6.sin6_addr, &b6.sin6_addr, sizeof(in6_addr)) == 0;
+    }
+    return false;
+}
+
 void run_server(const Config& cfg) {
     auto reporter = std::make_unique<Reporter>(cfg);
 
@@ -94,7 +115,7 @@ void run_server(const Config& cfg) {
                 }
                 if (static_cast<size_t>(n) < HEADER_SIZE) continue;
                 if (client_addr_valid &&
-                    std::memcmp(&from, &client_addr, sizeof(from)) != 0) {
+                    !sockaddr_equal(from, client_addr)) {
                     continue; // ignore packets from other sources
                 }
 
