@@ -133,7 +133,16 @@ void run_client(const Config& cfg) {
 
             // Send with pacing
             pacer->wait_until(next_send);
-            sock->send_to(pkt.data(), pkt.size(), server_addr);
+            try {
+                sock->send_to(pkt.data(), pkt.size(), server_addr);
+            } catch (const std::system_error& e) {
+                // send_to failure is fatal for UDP (socket is blocking, so
+                // transient buffer-full cannot occur — any failure indicates
+                // a real problem such as a closed/broken socket).
+                reporter->report_error("Send error: " + std::string(e.what()));
+                test_completed.store(true, std::memory_order_release);
+                break;
+            }
             packets_sent++;
             local_bytes += cfg.packet_len;
             interval_bytes += cfg.packet_len;
@@ -181,6 +190,7 @@ void run_client(const Config& cfg) {
 
         while (!g_shutdown.load(std::memory_order_relaxed) &&
                !result_received.load(std::memory_order_relaxed) &&
+               !test_completed.load(std::memory_order_relaxed) &&
                std::chrono::steady_clock::now() < deadline) {
 
             // Wait for data with timeout
@@ -222,7 +232,7 @@ void run_client(const Config& cfg) {
     {
         // Signal receiver to stop if still running
         auto wait_until = std::chrono::steady_clock::now() +
-            std::chrono::seconds(2);
+            std::chrono::seconds(1);
         while (std::chrono::steady_clock::now() < wait_until &&
                !receiver_done.load(std::memory_order_relaxed)) {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
