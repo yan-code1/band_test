@@ -56,6 +56,14 @@ void StatsCollector::record_packet(const ProtocolHeader& hdr,
         return;  // don't count duplicates in stats
     }
 
+    // Bounded memory: prune old IDs when set exceeds 100K entries
+    if (seen_ids_.size() >= 100'000) {
+        auto prune_before = last_packet_id_ > 50'000
+            ? last_packet_id_ - 50'000 : 0;
+        auto it = seen_ids_.lower_bound(prune_before);
+        seen_ids_.erase(seen_ids_.begin(), it);
+    }
+
     // Out-of-order detection
     if (pid < last_packet_id_) {
         out_of_order_++;
