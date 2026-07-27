@@ -43,7 +43,6 @@ Client Options:
   -4                     IPv4 mode (default)
   -6                     IPv6 mode
   --bind <host>          Bind to local address
-  --tos <value>          Set IP_TOS/DSCP value
 
 Server Options:
   -p, --port <port>       Listen port (default: 5201)
@@ -111,26 +110,59 @@ No additional installation required.
 
 ```
 [ ID] Interval        Transfer      Bitrate       Jitter   Lost/Total   Loss%  OoO
+-------------------------------------------------------------------------------
 [  1] 0.00-1.00 sec   1.25 MBytes   10.5 Mbps   0.123ms   23/ 1012    2.27%   0
 [  1] 1.00-2.00 sec   1.24 MBytes   10.4 Mbps   0.098ms   18/ 1005    1.79%   1
------------------------------------------------------------
-[  1] 0.00-10.00 sec  12.5 MBytes   10.5 Mbps   0.112ms  210/10180    2.06%   2
-Server Report:
-  Received: 9970/10180 packets (97.94%)
-  Bytes:    14.3 MBytes
-  Jitter:   0.112 ms (min=0.041 ms, max=0.893 ms)
+-------------------------------------------------------------------------------
+[  1] 0.00-10.00 sec  12.5 MBytes   10.5 Mbps   0.112ms    0/    0     --%   2  sender
+[  1] 0.00-10.00 sec  12.3 MBytes   10.4 Mbps   0.112ms  210/10180    2.06%   2  receiver
+-------------------------------------------------------------------------------
+Lost: 210/10180 (2.06%)
 ```
 
 ### JSON
 
 ```json
 {
-    "start": { "timestamp": "...", "version": "1.0.0", "system_info": {...} },
-    "test_config": { "bitrate_bps": 10000000, "duration_sec": 10, ... },
-    "intervals": [ { ... } ],
+    "start": {
+        "version": "1.0.0",
+        "server_host": "192.168.1.100",
+        "port": 5201,
+        "bitrate_bps": 10000000,
+        "duration_sec": 10,
+        "packet_len": 1470,
+        "ipv6": false,
+        "timestamp": "2026-07-27T10:30:00Z"
+    },
+    "intervals": [
+        {
+            "stream_id": 1,
+            "start_sec": 0.0,
+            "end_sec": 1.0,
+            "bytes": 1310720,
+            "bits_per_second": 10485760,
+            "jitter_ms": 0.123,
+            "lost_packets": 23,
+            "total_packets": 1012,
+            "lost_percent": 2.27,
+            "out_of_order": 0
+        }
+    ],
     "end": {
-        "client_stats": { "bytes_sent": ..., "packets_sent": ... },
-        "server_stats": { "bytes_received": ..., "jitter_ms": ..., "lost_percent": ... }
+        "duration_sec": 10.0,
+        "bytes_sent": 14961960,
+        "bytes_received": 14655900,
+        "packets_sent": 10180,
+        "packets_received": 9970,
+        "bits_per_second": 10240000,
+        "jitter_ms": 0.112,
+        "jitter_min_ms": 0.041,
+        "jitter_max_ms": 0.893,
+        "lost_packets": 210,
+        "total_packets": 10180,
+        "lost_percent": 2.06,
+        "out_of_order": 2,
+        "duplicate_packets": 0
     }
 }
 ```
@@ -146,8 +178,9 @@ Detailed design documentation, protocol specification, state machines, and API r
 - UDP only (no TCP/TLS support in v1.0)
 - Single stream only (no parallel streams)
 - Server handles one client at a time
-- Best-effort pacing on Windows (~10% accuracy above 1 Gbps due to OS sleep limits)
+- Best-effort pacing on Windows (hybrid sleep+spin, ~1-2% accuracy up to 10 Gbps for large packets). High bitrates with small packets or tight intervals consume close to 100% of one CPU core for spin-wait
 - Jitter accuracy affected by clock drift (~25ppm between machines)
+- No sub-2ms sleep accuracy: uses spin-wait below 2ms, consuming full CPU core during active measurement
 
 ## License
 

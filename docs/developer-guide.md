@@ -182,7 +182,7 @@ Receiver Thread:
 |------|-----|------|---------|------|
 | DATA | 0 | Client→Server | 用户数据 | 带宽测试数据包 |
 | START | 1 | Client→Server | 8B: duration_sec + reserved | 通知开始测试 |
-| FINISH | 2 | Client→Server | 无 | 通知结束发送 |
+| FINISH | 2 | Client→Server | 8B: total_packets (uint64_t) | 通知结束发送，内嵌发包总数 |
 | RESULT | 3 | Server→Client | JSON(≤1024B) | 返回统计结果 |
 
 ### Start Payload (8 字节)
@@ -213,6 +213,8 @@ Offset  Size  Field        Description
 }
 ```
 
+注意：服务端向客户端发送的 Result JSON 字段全部来自 `StatsSummary`。时长`duration_sec` 服务端以首尾包实际时间差计算，客户端本地汇报时使用 `-t` 指定值。
+
 ---
 
 ## 核心算法
@@ -225,15 +227,15 @@ Windows `sleep_for()` 精度仅 ~1ms，而 10Gbps 下包间隔仅 ~1.18μs。采
 wait_until(target):
   delta = target - now
 
-  if delta > 100μs:
-    sleep_for(delta - 90μs)    // 粗粒度等待
+  if delta > 2ms:
+    sleep_for(delta - 100μs)     // 粗粒度等待
   while now < target:
-    _mm_pause()                 // 微秒级 spin-wait
+    _mm_pause()                   // 微秒级 spin-wait
 
 burst 模式:
-  if packet_interval < 100μs:
-    burst_size = ceil(100μs / interval)
-    每次 sleep 后连续发送 burst_size 个包
+  if packet_interval < 2ms:
+    burst_size = ceil(2ms / interval)
+    每次 wait_until 后连续发送 burst_size 个包
 ```
 
 ### 抖动计算 (RFC 3550)
@@ -250,23 +252,16 @@ J(i)    = J(i-1) + (|D(i-1, i)| - J(i-1)) / 16   // 指数平滑移动平均
 
 ### 丢包率
 
-**两阶段回退方案：**
-
 ```
-阶段1（优先）：
-  total_packets > 0（从 Finish 消息获取客户端真实发包数）
-  → 丢包率 = (total_packets - packets_received) / total_packets × 100%
-
-阶段2（回退，无 Finish 时）：
-  期望包数 = 收到的最大 packet_id
-  → 丢包率 = (期望包数 - packets_received) / 期望包数 × 100%
+total_packets > 0（从 Finish 消息获取客户端真实发包数）
+→ 丢包率 = (total_packets - packets_received) / total_packets × 100%
 ```
 
-- 客户端在 **Finish 消息**的 payload 中嵌入实际发包总数（8 字节）
+- 客户端在 **Finish 消息**的 payload 中嵌入实际发包总数（8 字节 `uint64_t`）
 - 服务端收到 Finish 后调用 `set_sender_packets()`，`finalize()` 据此精确计算丢包
-- 如果 `total_packets = 0`（未收到 Finish），回退到 `last_packet_id_`（收到的最大 ID）
+- 如果 `total_packets == 0`（未收到 Finish 消息），单独报 `--/--` 表示丢包未知
 - 乱序检测：packet_id 非递增时计数
-- 重复包检测：已收到 packet_id 再次出现时计数
+- 重复包检测：`std::set` 滑动窗口追踪最近 100K 个 packet_id，超出窗口的 ID 被裁剪以控制内存
 
 ### 带宽计算
 
@@ -357,78 +352,66 @@ nb.exe -c 192.168.1.100 -l 1000    # 1000 字节报文
 
 ```
 [ ID] Interval        Transfer      Bitrate       Jitter   Lost/Total   Loss%  OoO
+-------------------------------------------------------------------------------
 [  1] 0.00-1.00  sec    1.25 MBytes   10.5 Mbps   0.123ms   23/ 1012    2.27%   0
 [  1] 1.00-2.00  sec    1.24 MBytes   10.4 Mbps   0.098ms   18/ 1005    1.79%   1
-[  1] - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[  1] 0.00-10.00 sec   12.5 MBytes   10.5 Mbps   0.112ms  210/10180    2.06%   2
-Server Report:
-  Received: 9970/10180 packets (97.94%)
-  Bytes:    14.3 MBytes
-  Jitter:   0.112 ms (min=0.041 ms, max=0.893 ms)
+-------------------------------------------------------------------------------
+[  1] 0.00-10.00 sec   12.5 MBytes   10.5 Mbps   0.112ms    0/    0     --%   2  sender
+[  1] 0.00-10.00 sec   12.3 MBytes   10.4 Mbps   0.112ms  210/10180    2.06%   2  receiver
+-------------------------------------------------------------------------------
+Lost: 210/10180 (2.06%)
 ```
+
+客户端显示双行（sender / receiver），类似 iperf3。末行 "Lost: X/Y (Z%)" 为服务端权威丢包率。未收到服务端 Result 时显示 `--/--`。行尾 `sender`/`receiver` 标签区分角色。
 
 ### JSON 输出
 
 ```json
 {
     "start": {
-        "timestamp": "2026-07-26T10:30:00Z",
         "version": "1.0.0",
-        "system_info": {
-            "os_name": "Windows",
-            "os_version": "10.0.19045",
-            "architecture": "x64"
-        }
-    },
-    "test_config": {
-        "role": "client",
         "server_host": "192.168.1.100",
-        "server_port": 5201,
+        "port": 5201,
         "bitrate_bps": 10000000,
-        "packet_length": 1470,
-        "duration_sec": 10.0,
-        "protocol": "UDP",
-        "ip_version": 4
+        "duration_sec": 10,
+        "packet_len": 1470,
+        "ipv6": false,
+        "timestamp": "2026-07-27T10:30:00Z"
     },
     "intervals": [
         {
-            "id": 1,
-            "seconds": [0.0, 1.0],
+            "stream_id": 1,
+            "start_sec": 0.0,
+            "end_sec": 1.0,
             "bytes": 1310720,
             "bits_per_second": 10485760,
             "jitter_ms": 0.123,
-            "jitter_min_ms": 0.041,
-            "jitter_max_ms": 0.893,
             "lost_packets": 23,
             "total_packets": 1012,
             "lost_percent": 2.27,
-            "out_of_order": 0,
-            "duplicate_packets": 0
+            "out_of_order": 0
         }
     ],
     "end": {
-        "client_stats": {
-            "bytes_sent": 14961960,
-            "packets_sent": 10180,
-            "sender_bitrate_bps": 10485760
-        },
-        "server_stats": {
-            "seconds": 10.0,
-            "bytes_received": 14655900,
-            "packets_received": 9970,
-            "bits_per_second": 10240000,
-            "jitter_ms": 0.112,
-            "jitter_min_ms": 0.041,
-            "jitter_max_ms": 0.893,
-            "lost_packets": 210,
-            "total_packets": 10180,
-            "lost_percent": 2.06,
-            "out_of_order": 2,
-            "duplicate_packets": 0
-        }
+        "duration_sec": 10.0,
+        "bytes_sent": 14961960,
+        "bytes_received": 14655900,
+        "packets_sent": 10180,
+        "packets_received": 9970,
+        "bits_per_second": 10240000,
+        "jitter_ms": 0.112,
+        "jitter_min_ms": 0.041,
+        "jitter_max_ms": 0.893,
+        "lost_packets": 210,
+        "total_packets": 10180,
+        "lost_percent": 2.06,
+        "out_of_order": 2,
+        "duplicate_packets": 0
     }
 }
 ```
+
+`end` 段使用扁平结构（无嵌套 `client_stats`/`server_stats`）。服务端数据到达时作为权威来源填入 `end`，否则填入客户端本地数据。区间段（`intervals`）的丢包数据仅来自发送端，故 `lost_packets`/`total_packets` 无意义。
 
 ---
 
@@ -491,34 +474,37 @@ RAII 封装的 Winsock UDP socket，核心 API：
 Pacer(bitrate_bps, packet_size):
   interval_ns = (packet_size * 8 / bitrate) * 1e9
 
-  if interval_ns < 100_000 (100μs):
-    burst_size = ceil(100μs / interval_ns)
+  if interval_ns < 2_000_000 (2ms):
+    burst_size = ceil(2ms / interval_ns)
   else:
     burst_size = 1
 ```
 
+2ms 阈值对齐 Windows sleep_for 的精度下限。≤2ms 的间隔走纯 spin-wait + burst 模式，>2ms 的间隔先 sleep_for 再 spin 补偿剩余微秒。
+
 ### StatsCollector
 
-线程安全的统计收集器：
+单线程使用的统计收集器（仅服务端调用，无并发访问）：
 
 | 方法 | 说明 |
 |------|------|
 | `start_test(duration)` | 重置所有计数器 |
 | `record_packet(hdr, recv_time)` | 记录一个接收到的数据包 |
-| `next_interval(elapsed, dur)` | 生成区间快照，重置区间计数器 |
-| `finalize()` | 生成最终统计摘要 |
-| `set_sender_packets(count)` | 设置发送端发包总数 |
+| `finalize()` | 生成最终统计摘要（含丢包率） |
+| `set_sender_packets(count)` | 设置发送端发包总数（从 Finish 消息解析） |
 
 
 ### ControlProtocol
 
 | 方法 | 说明 |
 |------|------|
-| `send_start(sock, dest, duration)` | 发送 Start 控制包 |
-| `send_finish(sock, dest)` | 发送 Finish 控制包 |
-| `send_result(sock, dest, summary)` | 发送 Result（最多重试 3 次） |
-| `parse_start_duration(data, len)` | 解析 Start 中的 duration |
-| `parse_result(data, len)` | 解析 Result JSON → StatsSummary |
+| `send_start(sock, dest, duration)` | 发送 Start 控制包（8B payload: duration_sec + reserved） |
+| `send_finish(sock, dest, total_packets)` | 发送 Finish 控制包（8B payload: 发送端总发包数 `uint64_t`） |
+| `send_result(sock, dest, summary)` | 发送 Result（JSON payload ≤1024B，最多重试 3 次，200ms 超时等 ACK） |
+| `send_ack(sock, dest)` | 发送 ACK（1 字节 0x00） |
+| `parse_start_duration(data, len)` | 解析 Start payload 中的 duration_sec |
+| `parse_result(data, len)` | 解析 Result JSON → StatsSummary（catch 异常） |
+| `parse_finish_total_packets(data, len)` | 解析 Finish payload 中的总发包数（8 字节 `uint64_t`） |
 
 ---
 
@@ -530,7 +516,7 @@ Pacer(bitrate_bps, packet_size):
 | **SO_RCVBUF 默认 8KB** | 设为 2MB，Windows 可能自动翻倍 |
 | **SO_SNDBUF 默认 8KB** | 设为 512KB |
 | **sleep_for() 精度 ~1ms** | 混合 spin-wait + _mm_pause() 达 μs 级 |
-| **timeBeginPeriod(1)** | 提升系统定时器分辨率到 1ms，退出时配对 `timeEndPeriod(1)` |
+| **sleep_for 精度受限** | 默认定时器~15.6ms — 采用 2ms 阈值：>2ms 用 sleep_for + spin 补偿，≤2ms 纯 spin-wait |
 | **Ctrl+C** | `SetConsoleCtrlHandler` 注册回调，设置 `g_shutdown = true` |
 | **防火墙** | 首次启动 Server 弹窗提示 |
 | **ICMP 检测** | `connect()` 虚拟连接 + `getsockopt(SO_ERROR)` |
@@ -566,6 +552,8 @@ dumpbin /dependents nb.exe
 - 抖动计算受时钟漂移影响（~25ppm，30s 测试 ~0.75ms 误差）
 - 单流模式，不支持并行流
 - 不支持 TCP 模式（v1.0 仅 UDP）
+- Windows sleep_for 无 sub-2ms 精度保证 — 高码率下 spin-wait 占满一核 CPU
+- `high_resolution_clock::time_since_epoch()` 在 MSVC 上返回开机时长而非 Unix 时间戳（不影响 RFC 3550 抖动计算，仅影响 JSON 中的绝对时间可读性）
 
 ## 版本历史
 
