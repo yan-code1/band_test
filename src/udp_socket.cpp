@@ -9,8 +9,13 @@ UdpSocket::UdpSocket(bool ipv6, const std::string& bind_addr, uint16_t port)
         throw std::system_error(WSAGetLastError(), std::system_category(),
                                 "socket() failed");
     }
-    set_buffers();
-    bind(bind_addr, port);
+    try {
+        set_buffers();
+        bind(bind_addr, port);
+    } catch (...) {
+        close();  // prevent SOCKET leak if bind/set_buffers throws
+        throw;
+    }
 }
 
 std::unique_ptr<UdpSocket> UdpSocket::create_client(bool ipv6) {
