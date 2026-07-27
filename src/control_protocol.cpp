@@ -125,24 +125,11 @@ int ControlProtocol::send_result(UdpSocket& sock,
         // We just check for *any* incoming packet as implicit ACK
         // (client sends a 1-byte zero as explicit ACK)
         {
-            sockaddr_storage ignore_from{};
-            int rc = ::recvfrom(sock.native_handle(),
-                                reinterpret_cast<char*>(ack_buf),
-                                sizeof(ack_buf), 0,
-                                nullptr, nullptr);
+            int rc = sock.recv_from(ack_buf, sizeof(ack_buf), nullptr);
             if (rc > 0) {
                 return attempt + 1;  // ACK received
             }
-            if (rc == SOCKET_ERROR) {
-                int err = WSAGetLastError();
-                if (err == WSAEMSGSIZE) {
-                    // Buffer too small for stray large packet — still means we got something
-                    return attempt + 1;
-                }
-                if (err == WSAETIMEDOUT) {
-                    continue;  // timeout, retry
-                }
-            }
+            // rc == -1 means timeout — retry
         }
     }
     return 0;  // no ACK
