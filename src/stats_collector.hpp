@@ -73,6 +73,7 @@ private:
     uint64_t bytes_received_ = 0;
     uint64_t packets_received_ = 0;
     uint32_t last_packet_id_ = 0;
+    uint32_t max_packet_id_ = 0;   // highest packet_id seen (separate from last_packet_id_ for OoO case)
     uint32_t out_of_order_ = 0;
     uint32_t duplicate_ = 0;
     uint64_t total_packets_ = 0;  // from sender

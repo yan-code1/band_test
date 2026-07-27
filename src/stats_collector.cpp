@@ -13,6 +13,7 @@ void StatsCollector::start_test(uint32_t duration_sec) {
     bytes_received_ = 0;
     packets_received_ = 0;
     last_packet_id_ = 0;
+    max_packet_id_ = 0;
     out_of_order_ = 0;
     duplicate_ = 0;
     jitter_ = 0;
@@ -54,6 +55,11 @@ void StatsCollector::record_packet(const ProtocolHeader& hdr,
     if (!seen_ids_.insert(pid).second) {
         duplicate_++;
         return;  // don't count duplicates in stats
+    }
+
+    // Track max packet_id (in case of out-of-order, last != max)
+    if (pid > max_packet_id_) {
+        max_packet_id_ = pid;
     }
 
     // Out-of-order detection
@@ -135,8 +141,8 @@ StatsSummary StatsCollector::finalize() {
     s.jitter_max_ms = jitter_max_;
     if (total_packets_ > 0) {
         s.total_packets = total_packets_;
-    } else if (last_packet_id_ > 0) {
-        s.total_packets = last_packet_id_;
+    } else if (max_packet_id_ > 0) {
+        s.total_packets = max_packet_id_;
     }
     s.lost_packets  = s.total_packets > packets_received_
         ? s.total_packets - packets_received_ : 0;
