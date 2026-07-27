@@ -157,6 +157,7 @@ void run_client(const Config& cfg) {
             // Advance next send time — only once per burst
             // (burst_size=1 means every packet, larger means back-to-back then wait)
             packet_id++;
+            if (packet_id == 0) packet_id = 1;  // 0 is reserved for control messages
             if (packet_id % pacer->burst_size() == 0) {
                 next_send += std::chrono::nanoseconds(
                     static_cast<int64_t>(pacer->interval_ns() * pacer->burst_size()));
