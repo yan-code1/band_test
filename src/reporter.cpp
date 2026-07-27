@@ -189,20 +189,6 @@ void Reporter::report_summary(const StatsSummary& local,
             json_["end"]["out_of_order"]      = server->out_of_order;
             json_["end"]["duplicate_packets"] = server->duplicate_packets;
 
-            // Also keep the full server detail section
-            json_["server"]["duration_sec"]      = server->duration_sec;
-            json_["server"]["bytes_received"]    = server->bytes_received;
-            json_["server"]["packets_received"]  = server->packets_received;
-            json_["server"]["packets_sent"]      = server->packets_sent;
-            json_["server"]["bits_per_second"]   = server->bits_per_second;
-            json_["server"]["jitter_ms"]         = server->jitter_ms;
-            json_["server"]["jitter_min_ms"]     = server->jitter_min_ms;
-            json_["server"]["jitter_max_ms"]     = server->jitter_max_ms;
-            json_["server"]["lost_packets"]      = server->lost_packets;
-            json_["server"]["total_packets"]     = server->total_packets;
-            json_["server"]["lost_percent"]      = server->lost_percent;
-            json_["server"]["out_of_order"]      = server->out_of_order;
-            json_["server"]["duplicate_packets"] = server->duplicate_packets;
         } else {
             // No server result: local (sender) data only
             json_["end"]["duration_sec"]      = local.duration_sec;
