@@ -181,46 +181,49 @@ void run_client(const Config& cfg) {
 
     // ── Receiver thread ─────────────────────────────────────
     std::thread receiver([&]() {
-        constexpr size_t BUF_SIZE = 2048;
-        auto buf = std::make_unique<uint8_t[]>(BUF_SIZE);
+        try {
+            constexpr size_t BUF_SIZE = 2048;
+            auto buf = std::make_unique<uint8_t[]>(BUF_SIZE);
 
-        auto deadline = std::chrono::steady_clock::now() +
-            std::chrono::seconds(cfg.duration_sec + 5);
+            auto deadline = std::chrono::steady_clock::now() +
+                std::chrono::seconds(cfg.duration_sec + 5);
 
-        while (!g_shutdown.load(std::memory_order_relaxed) &&
-               !result_received.load(std::memory_order_acquire) &&
-               !test_completed.load(std::memory_order_relaxed) &&
-               std::chrono::steady_clock::now() < deadline) {
+            while (!g_shutdown.load(std::memory_order_relaxed) &&
+                   !result_received.load(std::memory_order_acquire) &&
+                   !test_completed.load(std::memory_order_relaxed) &&
+                   std::chrono::steady_clock::now() < deadline) {
 
-            // Wait for data with timeout
-            fd_set readfds;
-            FD_ZERO(&readfds);
-            FD_SET(sock->native_handle(), &readfds);
+                // Wait for data with timeout
+                fd_set readfds;
+                FD_ZERO(&readfds);
+                FD_SET(sock->native_handle(), &readfds);
 
-            struct timeval tv;
-            tv.tv_sec = 0;
-            tv.tv_usec = 100000;  // 100ms timeout (check shutdown flag)
+                struct timeval tv;
+                tv.tv_sec = 0;
+                tv.tv_usec = 100000;  // 100ms timeout (check shutdown flag)
 
-            int rc = select(0, &readfds, nullptr, nullptr, &tv);
-            if (rc <= 0) continue;
+                int rc = select(0, &readfds, nullptr, nullptr, &tv);
+                if (rc <= 0) continue;
 
-            sockaddr_storage from{};
-            int n = sock->recv_from(buf.get(), BUF_SIZE, &from);
-            if (n < 0) continue;
-            if (static_cast<size_t>(n) < HEADER_SIZE) continue;
+                sockaddr_storage from{};
+                int n = sock->recv_from(buf.get(), BUF_SIZE, &from);
+                if (n < 0) continue;
+                if (static_cast<size_t>(n) < HEADER_SIZE) continue;
 
-            auto hdr_opt = header_from_wire(buf.get(), static_cast<size_t>(n));
-            if (!hdr_opt) continue;
+                auto hdr_opt = header_from_wire(buf.get(), static_cast<size_t>(n));
+                if (!hdr_opt) continue;
 
-            if (hdr_opt->msg_type == MSG_RESULT) {
-                size_t payload_len = n - HEADER_SIZE;
-                server_summary = ControlProtocol::parse_result(
-                    buf.get() + HEADER_SIZE, payload_len);
-                result_received.store(true, std::memory_order_release);
-                reporter->report_info("Server result received");
+                if (hdr_opt->msg_type == MSG_RESULT) {
+                    size_t payload_len = n - HEADER_SIZE;
+                    server_summary = ControlProtocol::parse_result(
+                        buf.get() + HEADER_SIZE, payload_len);
+                    result_received.store(true, std::memory_order_release);
+                    reporter->report_info("Server result received");
+                }
             }
+        } catch (const std::exception& e) {
+            reporter->report_error("Receiver error: " + std::string(e.what()));
         }
-
     });
 
     // ── Wait for sender to finish ───────────────────────────

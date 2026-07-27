@@ -131,7 +131,12 @@ int UdpSocket::recv_from(uint8_t* buf, size_t buf_size,
                         reinterpret_cast<sockaddr*>(&from), &fromlen);
     if (rc == SOCKET_ERROR) {
         int err = WSAGetLastError();
+        // Timeout is expected — not an error
         if (err == WSAETIMEDOUT) return -1;
+        // WSAECONNRESET occurs on connected UDP sockets when a prior send
+        // triggers an ICMP Port Unreachable (e.g. server exited). This is a
+        // benign transient condition for UDP, not a fatal socket error.
+        if (err == WSAECONNRESET) return -1;
         throw std::system_error(err, std::system_category(),
                                 "recvfrom() failed");
     }

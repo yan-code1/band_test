@@ -45,3 +45,4 @@ docs/plans/
 
 # ── Memory (Claude) ─────────────────────────────────────────
 .claude/
+.review/

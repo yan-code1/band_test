@@ -159,6 +159,10 @@ void run_server(const Config& cfg) {
 
             int ack_count = ControlProtocol::send_result(*sock, client_addr, summary);
 
+            // send_result() sets a short 200ms receive timeout for the ACK
+            // wait — restore the configured idle timeout for the next client.
+            sock->set_recv_timeout(std::chrono::seconds(cfg.idle_timeout_sec));
+
             reporter->report_summary(summary, nullptr); // server-side display
 
             if (ack_count > 0) {
