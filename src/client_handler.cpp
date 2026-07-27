@@ -180,7 +180,6 @@ void run_client(const Config& cfg) {
     });
 
     // ── Receiver thread ─────────────────────────────────────
-    std::atomic<bool> receiver_done{false};
     std::thread receiver([&]() {
         constexpr size_t BUF_SIZE = 2048;
         auto buf = std::make_unique<uint8_t[]>(BUF_SIZE);
@@ -222,7 +221,6 @@ void run_client(const Config& cfg) {
             }
         }
 
-        receiver_done.store(true, std::memory_order_release);
     });
 
     // ── Wait for sender to finish ───────────────────────────
