@@ -164,6 +164,33 @@ void run_client(const Config& cfg) {
             }
         }
 
+        // ── Report trailing partial interval ─────────────────
+        // The main while loop checks elapsed >= interval_sec using
+        // duration_cast<seconds> (integer truncation). If the test ends
+        // mid-interval (e.g. elapsed = trunc(0.95s) = 0), the check fails
+        // and the last ~0.95s of data is never interval-reported.
+        // Report it here with the actual wall-clock duration so the bitrate
+        // is correct and interval_bytes sum matches local_bytes exactly.
+        if (interval_bytes > 0) {
+            auto now = Pacer::clock::now();
+            double actual_dur = std::chrono::duration_cast<
+                std::chrono::duration<double>>(now - prev_interval_time).count();
+
+            IntervalSnapshot snap;
+            snap.stream_id = 1;
+            snap.start_sec = static_cast<double>(interval_num * cfg.interval_sec);
+            snap.end_sec   = snap.start_sec + actual_dur;
+            snap.bytes     = interval_bytes;
+            snap.bits_per_second = actual_dur > 0
+                ? static_cast<uint64_t>(static_cast<double>(interval_bytes * 8) / actual_dur)
+                : 0;
+            snap.jitter_ms     = 0;
+            snap.lost_packets  = 0;
+            snap.total_packets = 0;
+            snap.lost_percent  = 0;
+            reporter->report_interval(snap);
+        }
+
         // ── Send Finish (with retry, early exit on Result) ──
         for (int i = 0; i < 5; ++i) {
             if (g_shutdown) break;
