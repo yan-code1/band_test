@@ -125,9 +125,21 @@ void Reporter::report_summary(const StatsSummary& local,
         os << std::string(75, '-') << std::endl;
 
         char line[256];
+        char loss_buf[48];
+        if (local.total_packets > 0) {
+            std::snprintf(loss_buf, sizeof(loss_buf),
+                "%4llu/%-5llu  %5.2f%%  %3u",
+                static_cast<unsigned long long>(local.lost_packets),
+                static_cast<unsigned long long>(local.total_packets),
+                local.lost_percent,
+                local.out_of_order);
+        } else {
+            std::snprintf(loss_buf, sizeof(loss_buf),
+                "%4s/%-5s  %5s  %3u", "--", "--", "--%",
+                local.out_of_order);
+        }
         std::snprintf(line, sizeof(line),
-            "[%3u] 0.00-%-5.2f sec %8.2f MBytes  %9.2f %-5s  %6.3fms  "
-            "%4llu/%-5llu  %5.2f%%  %3u",
+            "[%3u] 0.00-%-5.2f sec %8.2f MBytes  %9.2f %-5s  %6.3fms  %s",
             1,
             local.duration_sec,
             static_cast<double>(local.bytes_received) / (1000.0 * 1000.0),
@@ -136,23 +148,35 @@ void Reporter::report_summary(const StatsSummary& local,
                 : static_cast<double>(local.bits_per_second) / 1'000'000.0,
             local.bits_per_second < 1'000'000 ? "Kbps" : "Mbps",
             local.jitter_ms,
-            static_cast<unsigned long long>(local.lost_packets),
-            static_cast<unsigned long long>(local.total_packets),
-            local.lost_percent,
-            local.out_of_order);
+            loss_buf);
         os << line << std::endl;
 
         if (server) {
             os << "Server Report:" << std::endl;
-            std::snprintf(line, sizeof(line),
-                "  Received: %llu/%llu packets (%.2f%%)\n"
-                "  Bytes:    %.2f MBytes\n"
-                "  Jitter:   %.3f ms (min=%.3f ms, max=%.3f ms)",
-                static_cast<unsigned long long>(server->packets_received),
-                static_cast<unsigned long long>(server->total_packets),
-                100.0 - server->lost_percent,
-                static_cast<double>(server->bytes_received) / (1000.0 * 1000.0),
-                server->jitter_ms, server->jitter_min_ms, server->jitter_max_ms);
+            if (server->total_packets > 0) {
+                std::snprintf(line, sizeof(line),
+                    "  Received: %llu/%llu (%.2f%%)\n"
+                    "  Lost:     %llu/%llu (%.2f%%)\n"
+                    "  Bytes:    %.2f MBytes\n"
+                    "  Jitter:   %.3f ms (min=%.3f ms, max=%.3f ms)",
+                    static_cast<unsigned long long>(server->packets_received),
+                    static_cast<unsigned long long>(server->total_packets),
+                    100.0 - server->lost_percent,
+                    static_cast<unsigned long long>(server->lost_packets),
+                    static_cast<unsigned long long>(server->total_packets),
+                    server->lost_percent,
+                    static_cast<double>(server->bytes_received) / (1000.0 * 1000.0),
+                    server->jitter_ms, server->jitter_min_ms, server->jitter_max_ms);
+            } else {
+                std::snprintf(line, sizeof(line),
+                    "  Received: %llu packets (unknown total — no Finish)\n"
+                    "  Lost:     --\n"
+                    "  Bytes:    %.2f MBytes\n"
+                    "  Jitter:   %.3f ms (min=%.3f ms, max=%.3f ms)",
+                    static_cast<unsigned long long>(server->packets_received),
+                    static_cast<double>(server->bytes_received) / (1000.0 * 1000.0),
+                    server->jitter_ms, server->jitter_min_ms, server->jitter_max_ms);
+            }
             os << line << std::endl;
         }
 
