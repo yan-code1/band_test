@@ -20,8 +20,6 @@ void StatsCollector::start_test(uint32_t duration_sec) {
     jitter_max_ = 0;
     prev_transit_ = 0;
     first_packet_ = true;
-    interval_bytes_ = 0;
-    interval_packets_ = 0;
     seen_ids_.clear();
     total_packets_ = 0;
     test_duration_ns_ = static_cast<uint64_t>(duration_sec) * 1'000'000'000;
@@ -85,41 +83,9 @@ void StatsCollector::record_packet(const ProtocolHeader& hdr,
     // Byte/packet counters
     uint32_t payload_bytes = hdr.total_length;
     bytes_received_ += payload_bytes;
-    interval_bytes_ += payload_bytes;
     packets_received_++;
-    interval_packets_++;
 
     last_packet_time_ns_ = recv_time_ns;
-}
-
-IntervalSnapshot StatsCollector::next_interval(double elapsed_sec,
-                                               double interval_dur) {
-    std::lock_guard<std::mutex> lock(mtx_);
-
-    IntervalSnapshot snap;
-    snap.start_sec = elapsed_sec - interval_dur;
-    snap.end_sec   = elapsed_sec;
-    snap.bytes     = interval_bytes_;
-    snap.bits_per_second = interval_dur > 0
-        ? static_cast<uint64_t>(static_cast<double>(interval_bytes_ * 8) / interval_dur)
-        : 0;
-    snap.jitter_ms     = jitter_;
-    snap.jitter_min_ms = jitter_min_ >= 1e8 ? 0 : jitter_min_;
-    snap.jitter_max_ms = jitter_max_;
-
-    // Per-interval loss data is not available (no per-interval sender info)
-    snap.total_packets = interval_packets_;
-    snap.lost_packets = 0;
-    snap.lost_percent = 0.0;
-
-    snap.out_of_order = out_of_order_;
-    snap.duplicate_packets = duplicate_;
-
-    // Reset interval counters
-    interval_bytes_ = 0;
-    interval_packets_ = 0;
-
-    return snap;
 }
 
 StatsSummary StatsCollector::finalize() {

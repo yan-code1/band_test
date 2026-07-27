@@ -55,9 +55,6 @@ public:
     /// Called when the test is complete — finalize stats.
     StatsSummary finalize();
 
-    /// Get a snapshot for the current interval (resets counters).
-    IntervalSnapshot next_interval(double elapsed_sec, double interval_dur);
-
     /// Mark the start of a test.
     void start_test(uint32_t duration_sec);
 
@@ -86,10 +83,6 @@ private:
     double jitter_max_ = 0;
     int64_t prev_transit_ = 0;
     bool    first_packet_ = true;
-
-    // Per-interval counters (reset each interval)
-    uint64_t interval_bytes_ = 0;
-    uint64_t interval_packets_ = 0;
 
     std::set<uint32_t> seen_ids_;  // duplicate detection
 };
