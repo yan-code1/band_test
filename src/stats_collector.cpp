@@ -76,8 +76,8 @@ void StatsCollector::record_packet(const ProtocolHeader& hdr,
     if (delta < 0) delta = -delta;
     double delta_ms = static_cast<double>(delta) / 1'000'000.0;
     jitter_ += (delta_ms - jitter_) / 16.0;
-    jitter_min_ = std::min(jitter_min_, jitter_);
-    jitter_max_ = std::max(jitter_max_, jitter_);
+    jitter_min_ = std::min(jitter_min_, delta_ms);  // raw transit delta, not EMA
+    jitter_max_ = std::max(jitter_max_, delta_ms);
     prev_transit_ = transit;
 
     // Byte/packet counters
