@@ -65,7 +65,9 @@ void run_client(const Config& cfg) {
 
     reporter->report_start(cfg);
 
-    // ── Allocate send buffer ────────────────────────────────
+    // ── Allocate reusable send buffer ─────────────────────────
+    // Pre-filled with 'D' payload bytes; only the 24-byte header
+    // is overwritten per-packet, avoiding a heap allocation on every send.
     std::vector<uint8_t> send_buf(cfg.packet_len, 'D');
     auto now_ns = []() -> uint64_t {
         return std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -122,19 +124,16 @@ void run_client(const Config& cfg) {
                 break;
             }
 
-            // Build protocol header
+            // Build protocol header and write into reusable buffer
             auto hdr = make_data_header(packet_id,
                                         cfg.packet_len - HEADER_SIZE,
                                         now_ns());
-
-            // Pack header + payload into buffer
-            std::vector<uint8_t> pkt(cfg.packet_len);
-            header_to_wire(hdr, pkt.data());
+            header_to_wire(hdr, send_buf.data());
 
             // Send with pacing
             pacer->wait_until(next_send);
             try {
-                sock->send_to(pkt.data(), pkt.size(), server_addr);
+                sock->send_to(send_buf.data(), send_buf.size(), server_addr);
             } catch (const std::system_error& e) {
                 // send_to failure is fatal for UDP (socket is blocking, so
                 // transient buffer-full cannot occur — any failure indicates
@@ -167,11 +166,11 @@ void run_client(const Config& cfg) {
         // ── Send Finish (with retry, early exit on Result) ──
         for (int i = 0; i < 5; ++i) {
             if (g_shutdown) break;
-            if (result_received.load(std::memory_order_relaxed)) break;  // server responded
+            if (result_received.load(std::memory_order_acquire)) break;  // server responded
             ControlProtocol::send_finish(*sock, server_addr, packets_sent);
 
             // Brief wait between retries (also gives Result a chance to arrive)
-            for (int w = 0; w < 10 && !result_received.load(std::memory_order_relaxed); ++w) {
+            for (int w = 0; w < 10 && !result_received.load(std::memory_order_acquire); ++w) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
         }
@@ -189,7 +188,7 @@ void run_client(const Config& cfg) {
             std::chrono::seconds(cfg.duration_sec + 5);
 
         while (!g_shutdown.load(std::memory_order_relaxed) &&
-               !result_received.load(std::memory_order_relaxed) &&
+               !result_received.load(std::memory_order_acquire) &&
                !test_completed.load(std::memory_order_relaxed) &&
                std::chrono::steady_clock::now() < deadline) {
 
@@ -256,7 +255,7 @@ void run_client(const Config& cfg) {
     local_summary.bits_per_second  = elapsed > 0
         ? static_cast<uint64_t>(local_bytes * 8 / elapsed) : 0;
 
-    if (result_received) {
+    if (result_received.load(std::memory_order_acquire)) {
         reporter->report_summary(local_summary, &server_summary);
     } else {
         reporter->report_summary(local_summary, nullptr);
