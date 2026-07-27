@@ -27,13 +27,24 @@ void Pacer::wait_until(clock::time_point target) {
     auto delta_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
         target - now).count();
 
-    if (delta_ns > 100'000) {
-        // > 100 us: use sleep (optimistic wake, then spin for remainder)
-        auto sleep_dur = std::chrono::nanoseconds(delta_ns - 90'000);
+    // On Windows, sleep_for(< 2 ms) is unreliable due to coarse OS timer
+    // granularity (~1-16 ms default). A 16 µs sleep can take 1+ ms, causing
+    // massive underperformance at high bitrates. Only use sleep for waits
+    // where the OS can deliver reasonable accuracy.
+    //
+    // For shorter waits, spin-wait only. Up to 2 ms of spin per ~100 packets
+    // is acceptable for a benchmark tool and ensures precise timing.
+    constexpr int64_t kMinSleepNs = 2'000'000;  // 2 ms
+
+    if (delta_ns > kMinSleepNs) {
+        // Sleep for the bulk, leaving ~100 µs for spin compensation
+        auto sleep_dur = std::chrono::nanoseconds(delta_ns - 100'000);
         std::this_thread::sleep_for(sleep_dur);
     }
 
-    // Spin-wait for the final microseconds
+    // Spin-wait for the remainder
+    // If we skipped sleep: up to ~2 ms per burst (at high bitrates)
+    // If we slept:         ~100 µs to absorb wake-up jitter
     while (clock::now() < target) {
         _mm_pause();
     }
