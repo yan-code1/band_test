@@ -229,17 +229,8 @@ void run_client(const Config& cfg) {
     sender.join();
 
     // ── Wait for receiver to finish ─────────────────────────
-    {
-        // Signal receiver to stop if still running
-        auto wait_until = std::chrono::steady_clock::now() +
-            std::chrono::seconds(1);
-        while (std::chrono::steady_clock::now() < wait_until &&
-               !receiver_done.load(std::memory_order_relaxed)) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        }
-    }
-
-    // Join (thread either already exited or will within its 100ms select timeout)
+    // Receiver will exit within 100ms (select timeout) once
+    // test_completed, result_received, or g_shutdown is set.
     if (receiver.joinable()) {
         receiver.join();
     }
