@@ -89,14 +89,10 @@ void run_client(const Config& cfg) {
 
         while (!g_shutdown.load(std::memory_order_relaxed) &&
                !test_completed.load(std::memory_order_relaxed)) {
-            // Check if test time elapsed
             auto now = Pacer::clock::now();
-            if (now >= test_end_time) {
-                test_completed.store(true, std::memory_order_release);
-                break;
-            }
 
-            // Check for per-interval reporting
+            // Check for per-interval reporting FIRST, so the final
+            // interval (e.g. 4-5s for -t 5) fires before the test ends.
             auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                 now - prev_interval_time).count();
             if (elapsed >= cfg.interval_sec) {
@@ -117,6 +113,13 @@ void run_client(const Config& cfg) {
                 interval_bytes = 0;
                 interval_num++;
                 prev_interval_time = now;
+            }
+
+            // Check if test time elapsed (after interval reporting so the
+            // final interval is always shown before the test ends)
+            if (now >= test_end_time) {
+                test_completed.store(true, std::memory_order_release);
+                break;
             }
 
             // Build protocol header
