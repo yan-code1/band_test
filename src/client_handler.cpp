@@ -238,8 +238,8 @@ void run_client(const Config& cfg) {
     local_summary.duration_sec     = elapsed;
     local_summary.bytes_received   = local_bytes;
     local_summary.packets_sent     = packets_sent;
-    local_summary.packets_received = packets_sent;
-    local_summary.total_packets    = packets_sent;  // show sent count in Lost/Total column
+    // packets_received stays 0 — sender doesn't receive data packets
+    local_summary.total_packets    = packets_sent;
     local_summary.bits_per_second  = elapsed > 0
         ? static_cast<uint64_t>(local_bytes * 8 / elapsed) : 0;
 

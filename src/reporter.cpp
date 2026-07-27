@@ -119,64 +119,50 @@ void Reporter::report_interval(const IntervalSnapshot& snap) {
 
 void Reporter::report_summary(const StatsSummary& local,
                                const StatsSummary* server) {
+    // ── Lambda to format one summary line ────────────────────
+    auto format_line = [](char* buf, size_t buf_size,
+                          const StatsSummary& s,
+                          const char* role)
+    {
+        char loss_buf[48];
+        if (s.total_packets > 0) {
+            std::snprintf(loss_buf, sizeof(loss_buf),
+                "%4llu/%-5llu  %5.2f%%  %3u",
+                static_cast<unsigned long long>(s.lost_packets),
+                static_cast<unsigned long long>(s.total_packets),
+                s.lost_percent,
+                s.out_of_order);
+        } else {
+            std::snprintf(loss_buf, sizeof(loss_buf),
+                "%4s/%-5s  %5s  %3u",
+                "--", "--", "--%",
+                s.out_of_order);
+        }
+        std::snprintf(buf, buf_size,
+            "[%3u] 0.00-%-5.2f sec %8.2f MBytes  %9.2f %-5s  %6.3fms  %s  %s",
+            1,
+            s.duration_sec,
+            static_cast<double>(s.bytes_received) / (1000.0 * 1000.0),
+            s.bits_per_second < 1'000'000
+                ? static_cast<double>(s.bits_per_second) / 1000.0
+                : static_cast<double>(s.bits_per_second) / 1'000'000.0,
+            s.bits_per_second < 1'000'000 ? "Kbps" : "Mbps",
+            s.jitter_ms,
+            loss_buf,
+            role);
+    };
+
     // ── Terminal ────────────────────────────────────────────
     if (!json_mode_) {
         std::ostringstream os;
         os << std::string(75, '-') << std::endl;
 
         char line[256];
-        char loss_buf[48];
-        if (local.total_packets > 0) {
-            std::snprintf(loss_buf, sizeof(loss_buf),
-                "%4llu/%-5llu  %5.2f%%  %3u",
-                static_cast<unsigned long long>(local.lost_packets),
-                static_cast<unsigned long long>(local.total_packets),
-                local.lost_percent,
-                local.out_of_order);
-        } else {
-            std::snprintf(loss_buf, sizeof(loss_buf),
-                "%4s/%-5s  %5s  %3u", "--", "--", "--%",
-                local.out_of_order);
-        }
-        std::snprintf(line, sizeof(line),
-            "[%3u] 0.00-%-5.2f sec %8.2f MBytes  %9.2f %-5s  %6.3fms  %s",
-            1,
-            local.duration_sec,
-            static_cast<double>(local.bytes_received) / (1000.0 * 1000.0),
-            local.bits_per_second < 1'000'000
-                ? static_cast<double>(local.bits_per_second) / 1000.0
-                : static_cast<double>(local.bits_per_second) / 1'000'000.0,
-            local.bits_per_second < 1'000'000 ? "Kbps" : "Mbps",
-            local.jitter_ms,
-            loss_buf);
+        format_line(line, sizeof(line), local, "sender");
         os << line << std::endl;
 
         if (server) {
-            os << "Server Report:" << std::endl;
-            if (server->total_packets > 0) {
-                std::snprintf(line, sizeof(line),
-                    "  Received: %llu/%llu (%.2f%%)\n"
-                    "  Lost:     %llu/%llu (%.2f%%)\n"
-                    "  Bytes:    %.2f MBytes\n"
-                    "  Jitter:   %.3f ms (min=%.3f ms, max=%.3f ms)",
-                    static_cast<unsigned long long>(server->packets_received),
-                    static_cast<unsigned long long>(server->total_packets),
-                    100.0 - server->lost_percent,
-                    static_cast<unsigned long long>(server->lost_packets),
-                    static_cast<unsigned long long>(server->total_packets),
-                    server->lost_percent,
-                    static_cast<double>(server->bytes_received) / (1000.0 * 1000.0),
-                    server->jitter_ms, server->jitter_min_ms, server->jitter_max_ms);
-            } else {
-                std::snprintf(line, sizeof(line),
-                    "  Received: %llu packets (unknown total — no Finish)\n"
-                    "  Lost:     --\n"
-                    "  Bytes:    %.2f MBytes\n"
-                    "  Jitter:   %.3f ms (min=%.3f ms, max=%.3f ms)",
-                    static_cast<unsigned long long>(server->packets_received),
-                    static_cast<double>(server->bytes_received) / (1000.0 * 1000.0),
-                    server->jitter_ms, server->jitter_min_ms, server->jitter_max_ms);
-            }
+            format_line(line, sizeof(line), *server, "receiver");
             os << line << std::endl;
         }
 
@@ -184,23 +170,26 @@ void Reporter::report_summary(const StatsSummary& local,
         write_terminal(os.str());
     }
 
-    // ── JSON output ────────────────────────────────────────
+    // ── JSON output ─────────────────────────────────────────
     if (json_mode_) {
-        json_["end"]["duration_sec"]      = local.duration_sec;
-        json_["end"]["bytes_received"]    = local.bytes_received;
-        json_["end"]["packets_sent"]      = local.packets_sent;
-        json_["end"]["packets_received"]  = local.packets_received;
-        json_["end"]["bits_per_second"]   = local.bits_per_second;
-        json_["end"]["jitter_ms"]         = local.jitter_ms;
-        json_["end"]["jitter_min_ms"]     = local.jitter_min_ms;
-        json_["end"]["jitter_max_ms"]     = local.jitter_max_ms;
-        json_["end"]["lost_packets"]      = local.lost_packets;
-        json_["end"]["total_packets"]     = local.total_packets;
-        json_["end"]["lost_percent"]      = local.lost_percent;
-        json_["end"]["out_of_order"]      = local.out_of_order;
-        json_["end"]["duplicate_packets"] = local.duplicate_packets;
-
         if (server) {
+            // When server result is available, use authoritative receiver data
+            json_["end"]["duration_sec"]      = server->duration_sec;
+            json_["end"]["bytes_sent"]        = local.bytes_received;
+            json_["end"]["bytes_received"]    = server->bytes_received;
+            json_["end"]["packets_sent"]      = local.packets_sent;
+            json_["end"]["packets_received"]  = server->packets_received;
+            json_["end"]["bits_per_second"]   = server->bits_per_second;
+            json_["end"]["jitter_ms"]         = server->jitter_ms;
+            json_["end"]["jitter_min_ms"]     = server->jitter_min_ms;
+            json_["end"]["jitter_max_ms"]     = server->jitter_max_ms;
+            json_["end"]["lost_packets"]      = server->lost_packets;
+            json_["end"]["total_packets"]     = server->total_packets;
+            json_["end"]["lost_percent"]      = server->lost_percent;
+            json_["end"]["out_of_order"]      = server->out_of_order;
+            json_["end"]["duplicate_packets"] = server->duplicate_packets;
+
+            // Also keep the full server detail section
             json_["server"]["duration_sec"]      = server->duration_sec;
             json_["server"]["bytes_received"]    = server->bytes_received;
             json_["server"]["packets_received"]  = server->packets_received;
@@ -214,6 +203,21 @@ void Reporter::report_summary(const StatsSummary& local,
             json_["server"]["lost_percent"]      = server->lost_percent;
             json_["server"]["out_of_order"]      = server->out_of_order;
             json_["server"]["duplicate_packets"] = server->duplicate_packets;
+        } else {
+            // No server result: local (sender) data only
+            json_["end"]["duration_sec"]      = local.duration_sec;
+            json_["end"]["bytes_received"]    = local.bytes_received;
+            json_["end"]["packets_sent"]      = local.packets_sent;
+            json_["end"]["packets_received"]  = local.packets_received;
+            json_["end"]["bits_per_second"]   = local.bits_per_second;
+            json_["end"]["jitter_ms"]         = local.jitter_ms;
+            json_["end"]["jitter_min_ms"]     = local.jitter_min_ms;
+            json_["end"]["jitter_max_ms"]     = local.jitter_max_ms;
+            json_["end"]["lost_packets"]      = local.lost_packets;
+            json_["end"]["total_packets"]     = local.total_packets;
+            json_["end"]["lost_percent"]      = local.lost_percent;
+            json_["end"]["out_of_order"]      = local.out_of_order;
+            json_["end"]["duplicate_packets"] = local.duplicate_packets;
         }
 
         write_terminal(json_.dump(2) + "\n");
