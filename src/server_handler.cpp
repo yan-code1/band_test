@@ -104,6 +104,17 @@ void run_server(const Config& cfg) {
 
                 if (hdr.msg_type == MSG_FINISH) {
                     reporter->report_info("Finish received");
+
+                    // Extract total_packets from Finish payload
+                    size_t payload_len = static_cast<size_t>(n) - HEADER_SIZE;
+                    uint64_t sender_total = ControlProtocol::parse_finish_total_packets(
+                        buf.get() + HEADER_SIZE, payload_len);
+                    if (sender_total > 0) {
+                        server_stats->set_sender_packets(sender_total);
+                        reporter->report_info("Sender reported " +
+                            std::to_string(sender_total) + " packets total");
+                    }
+
                     break; // → REPORTING
                 }
 

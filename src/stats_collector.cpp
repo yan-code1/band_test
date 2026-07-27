@@ -6,7 +6,7 @@ namespace nb {
 
 static constexpr double NANOS_PER_SEC = 1'000'000'000.0;
 
-void StatsCollector::start_test(uint32_t /*duration_sec*/) {
+void StatsCollector::start_test(uint32_t duration_sec) {
     std::lock_guard<std::mutex> lock(mtx_);
     first_packet_time_ns_ = 0;
     last_packet_time_ns_ = 0;
@@ -24,6 +24,7 @@ void StatsCollector::start_test(uint32_t /*duration_sec*/) {
     interval_packets_ = 0;
     seen_ids_.clear();
     total_packets_ = 0;
+    test_duration_ns_ = static_cast<uint64_t>(duration_sec) * 1'000'000'000;
 }
 
 void StatsCollector::set_sender_packets(uint64_t sent) {
@@ -98,17 +99,10 @@ IntervalSnapshot StatsCollector::next_interval(double elapsed_sec,
     snap.jitter_min_ms = jitter_min_ >= 1e8 ? 0 : jitter_min_;
     snap.jitter_max_ms = jitter_max_;
 
-    // Loss detection — infer from max packet_id if total_packets unknown
-    if (total_packets_ > 0) {
-        snap.total_packets = static_cast<uint32_t>(total_packets_);
-        snap.lost_packets = total_packets_ - packets_received_;
-    } else if (last_packet_id_ > 0) {
-        snap.total_packets = last_packet_id_;
-        snap.lost_packets = last_packet_id_ - packets_received_;
-    }
-    snap.lost_percent = snap.total_packets > 0
-        ? (static_cast<double>(snap.lost_packets) / snap.total_packets) * 100.0
-        : 0.0;
+    // Per-interval loss data is not available (no per-interval sender info)
+    snap.total_packets = interval_packets_;
+    snap.lost_packets = 0;
+    snap.lost_percent = 0.0;
 
     snap.out_of_order = out_of_order_;
     snap.duplicate_packets = duplicate_;
@@ -124,7 +118,12 @@ StatsSummary StatsCollector::finalize() {
     std::lock_guard<std::mutex> lock(mtx_);
 
     StatsSummary s;
-    s.duration_sec = (last_packet_time_ns_ - first_packet_time_ns_) / NANOS_PER_SEC;
+    if (packets_received_ > 0) {
+        s.duration_sec = (last_packet_time_ns_ - first_packet_time_ns_) / NANOS_PER_SEC;
+    } else {
+        // No packets received — use the configured test duration (from Start message)
+        s.duration_sec = static_cast<double>(test_duration_ns_) / NANOS_PER_SEC;
+    }
     if (s.duration_sec < 0.001) s.duration_sec = 0.001;
     s.bytes_received  = bytes_received_;
     s.packets_received = packets_received_;

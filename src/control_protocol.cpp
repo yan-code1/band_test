@@ -84,11 +84,21 @@ void ControlProtocol::send_start(UdpSocket& sock,
 }
 
 void ControlProtocol::send_finish(UdpSocket& sock,
-                                  const sockaddr_storage& dest) {
+                                  const sockaddr_storage& dest,
+                                  uint64_t total_packets) {
     auto hdr = make_finish_header();
-    std::vector<uint8_t> buf(HEADER_SIZE);
+    std::vector<uint8_t> buf(HEADER_SIZE + 8);
     header_to_wire(hdr, buf.data());
+    std::memcpy(buf.data() + HEADER_SIZE, &total_packets, sizeof(total_packets));
     sock.send_to(buf.data(), buf.size(), dest);
+}
+
+uint64_t ControlProtocol::parse_finish_total_packets(const uint8_t* data,
+                                                      size_t len) {
+    if (len < sizeof(uint64_t)) return 0;
+    uint64_t total = 0;
+    std::memcpy(&total, data, sizeof(total));
+    return total;
 }
 
 int ControlProtocol::send_result(UdpSocket& sock,

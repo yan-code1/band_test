@@ -35,7 +35,6 @@ struct Config {
 
     // ── Advanced ────────────────────────────────────────────
     std::string bind_addr;             // empty = any
-    std::optional<int> tos;            // IP_TOS value
     bool     version_flag = false;
     bool     help_flag    = false;
 };

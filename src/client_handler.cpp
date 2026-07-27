@@ -143,24 +143,32 @@ void run_client(const Config& cfg) {
                 break;
             }
 
-            // Advance next send time (accounting for burst)
+            // Advance next send time — only once per burst
+            // (burst_size=1 means every packet, larger means back-to-back then wait)
             packet_id++;
-            auto interval = pacer->interval_ns();
-            next_send += std::chrono::nanoseconds(
-                static_cast<int64_t>(interval * pacer->burst_size()));
+            if (packet_id % pacer->burst_size() == 0) {
+                next_send += std::chrono::nanoseconds(
+                    static_cast<int64_t>(pacer->interval_ns() * pacer->burst_size()));
+            }
         }
 
-        // ── Send Finish (with retry) ────────────────────────
+        // ── Send Finish (with retry, early exit on Result) ──
         for (int i = 0; i < 5; ++i) {
             if (g_shutdown) break;
-            ControlProtocol::send_finish(*sock, server_addr);
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            if (result_received.load(std::memory_order_relaxed)) break;  // server responded
+            ControlProtocol::send_finish(*sock, server_addr, packets_sent);
+
+            // Brief wait between retries (also gives Result a chance to arrive)
+            for (int w = 0; w < 10 && !result_received.load(std::memory_order_relaxed); ++w) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
         }
 
         test_completed.store(true, std::memory_order_release);
     });
 
     // ── Receiver thread ─────────────────────────────────────
+    std::atomic<bool> receiver_done{false};
     std::thread receiver([&]() {
         constexpr size_t BUF_SIZE = 2048;
         auto buf = std::make_unique<uint8_t[]>(BUF_SIZE);
@@ -200,24 +208,27 @@ void run_client(const Config& cfg) {
                 reporter->report_info("Server result received");
             }
         }
+
+        receiver_done.store(true, std::memory_order_release);
     });
 
     // ── Wait for sender to finish ───────────────────────────
     sender.join();
 
-    // ── Wait a bit for receiver ─────────────────────────────
+    // ── Wait for receiver to finish ─────────────────────────
     {
+        // Signal receiver to stop if still running
         auto wait_until = std::chrono::steady_clock::now() +
             std::chrono::seconds(2);
         while (std::chrono::steady_clock::now() < wait_until &&
-               !result_received.load(std::memory_order_relaxed)) {
+               !receiver_done.load(std::memory_order_relaxed)) {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
     }
 
-    // Detach receiver if still running (don't block)
+    // Join (thread either already exited or will within its 100ms select timeout)
     if (receiver.joinable()) {
-        receiver.detach();
+        receiver.join();
     }
 
     // ── Report summary ──────────────────────────────────────

@@ -29,7 +29,12 @@ public:
                            uint32_t duration_sec);
 
     /// Send Finish message to target.
-    static void send_finish(UdpSocket& sock, const sockaddr_storage& dest);
+    /// total_packets is the number of data packets the sender transmitted.
+    static void send_finish(UdpSocket& sock, const sockaddr_storage& dest,
+                            uint64_t total_packets = 0);
+
+    /// Parse total_packets from a Finish message payload (8 bytes).
+    static uint64_t parse_finish_total_packets(const uint8_t* data, size_t len);
 
     /// Send Result message (with retry).
     /// Returns true if ACK received.

@@ -2,6 +2,7 @@
 
 #include "stats_collector.hpp"
 #include "argument_parser.hpp"
+#include <nlohmann/json.hpp>
 
 #include <string>
 #include <fstream>
@@ -37,12 +38,10 @@ private:
     std::unique_ptr<std::ofstream> logfile_;
 
     // JSON state
-    std::string json_start_;
-    std::string json_intervals_;
-    std::string json_end_;
+    nlohmann::json json_;
+    bool json_started_ = false;
 
     void write_terminal(const std::string& line);
-    void write_json(const std::string& fragment);
     void flush();
 };
 

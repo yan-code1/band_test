@@ -250,12 +250,21 @@ J(i)    = J(i-1) + (|D(i-1, i)| - J(i-1)) / 16   // 指数平滑移动平均
 
 ### 丢包率
 
+**两阶段回退方案：**
+
 ```
-期望包数 = 收到的最大 packet_id
-丢包率 = (期望包数 - 实际接收包数) / 期望包数 × 100%
+阶段1（优先）：
+  total_packets > 0（从 Finish 消息获取客户端真实发包数）
+  → 丢包率 = (total_packets - packets_received) / total_packets × 100%
+
+阶段2（回退，无 Finish 时）：
+  期望包数 = 收到的最大 packet_id
+  → 丢包率 = (期望包数 - packets_received) / 期望包数 × 100%
 ```
 
-- 如果期望包数 = 0（无数据包），丢包率显示 `N/A`
+- 客户端在 **Finish 消息**的 payload 中嵌入实际发包总数（8 字节）
+- 服务端收到 Finish 后调用 `set_sender_packets()`，`finalize()` 据此精确计算丢包
+- 如果 `total_packets = 0`（未收到 Finish），回退到 `last_packet_id_`（收到的最大 ID）
 - 乱序检测：packet_id 非递增时计数
 - 重复包检测：已收到 packet_id 再次出现时计数
 

@@ -77,6 +77,9 @@ private:
     uint32_t duplicate_ = 0;
     uint64_t total_packets_ = 0;  // from sender
 
+    // Test configuration
+    uint64_t test_duration_ns_ = 0;  // from start_test()
+
     // Jitter (RFC 3550)
     double jitter_ = 0;
     double jitter_min_ = 1e9;

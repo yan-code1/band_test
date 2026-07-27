@@ -1,4 +1,5 @@
 #include "reporter.hpp"
+#include "platform.hpp"
 #include <nlohmann/json.hpp>
 
 #include <iostream>
@@ -29,15 +30,11 @@ Reporter::Reporter(const Config& cfg)
 }
 
 Reporter::~Reporter() {
-    // Write any buffered JSON content
-    if (json_mode_ && (!json_start_.empty() || !json_intervals_.empty() || !json_end_.empty())) {
-        std::string full = "{\n";
-        if (!json_start_.empty()) {
-            full += "\"start\": " + json_start_ + ",";
-            full += "\n\"test_config\": " + json_start_ + ","; // placeholder
-        }
-        full += "\n\"end\": " + json_end_ + "\n}";
-        write_terminal(full);
+    // If JSON mode was started but report_summary() was never called
+    // (e.g., Ctrl+C during test), flush partial JSON data
+    if (json_mode_ && json_started_ && !json_.contains("end")) {
+        json_["end"] = nullptr;  // mark incomplete
+        write_terminal(json_.dump(2) + "\n");
     }
 }
 
@@ -66,6 +63,18 @@ void Reporter::report_start(const Config& cfg) {
         os << "[ ID] Interval        Transfer      Bitrate       Jitter   "
               "Lost/Total   Loss%  OoO" << std::endl;
         write_terminal(os.str());
+    } else {
+        // Build JSON start object
+        json_["start"]["version"]     = NB_VERSION_STR;
+        json_["start"]["server_host"] = cfg.server_host;
+        json_["start"]["port"]        = cfg.port;
+        json_["start"]["bitrate_bps"] = cfg.bitrate_bps;
+        json_["start"]["duration_sec"] = cfg.duration_sec;
+        json_["start"]["packet_len"]  = cfg.packet_len;
+        json_["start"]["ipv6"]        = cfg.ipv6;
+        json_["start"]["timestamp"]   = time_buf;
+        json_["intervals"] = nlohmann::json::array();
+        json_started_ = true;
     }
 }
 
@@ -91,6 +100,20 @@ void Reporter::report_interval(const IntervalSnapshot& snap) {
             snap.out_of_order);
         os << line << std::endl;
         write_terminal(os.str());
+    } else if (json_started_) {
+        // Append JSON interval
+        nlohmann::json j;
+        j["stream_id"]      = snap.stream_id;
+        j["start_sec"]      = snap.start_sec;
+        j["end_sec"]        = snap.end_sec;
+        j["bytes"]          = snap.bytes;
+        j["bits_per_second"] = snap.bits_per_second;
+        j["jitter_ms"]      = snap.jitter_ms;
+        j["lost_packets"]   = snap.lost_packets;
+        j["total_packets"]  = snap.total_packets;
+        j["lost_percent"]   = snap.lost_percent;
+        j["out_of_order"]   = snap.out_of_order;
+        json_["intervals"].push_back(std::move(j));
     }
 }
 
@@ -135,6 +158,41 @@ void Reporter::report_summary(const StatsSummary& local,
 
         os << std::string(75, '-') << std::endl;
         write_terminal(os.str());
+    }
+
+    // ── JSON output ────────────────────────────────────────
+    if (json_mode_) {
+        json_["end"]["duration_sec"]      = local.duration_sec;
+        json_["end"]["bytes_received"]    = local.bytes_received;
+        json_["end"]["packets_sent"]      = local.packets_sent;
+        json_["end"]["packets_received"]  = local.packets_received;
+        json_["end"]["bits_per_second"]   = local.bits_per_second;
+        json_["end"]["jitter_ms"]         = local.jitter_ms;
+        json_["end"]["jitter_min_ms"]     = local.jitter_min_ms;
+        json_["end"]["jitter_max_ms"]     = local.jitter_max_ms;
+        json_["end"]["lost_packets"]      = local.lost_packets;
+        json_["end"]["total_packets"]     = local.total_packets;
+        json_["end"]["lost_percent"]      = local.lost_percent;
+        json_["end"]["out_of_order"]      = local.out_of_order;
+        json_["end"]["duplicate_packets"] = local.duplicate_packets;
+
+        if (server) {
+            json_["server"]["duration_sec"]      = server->duration_sec;
+            json_["server"]["bytes_received"]    = server->bytes_received;
+            json_["server"]["packets_received"]  = server->packets_received;
+            json_["server"]["packets_sent"]      = server->packets_sent;
+            json_["server"]["bits_per_second"]   = server->bits_per_second;
+            json_["server"]["jitter_ms"]         = server->jitter_ms;
+            json_["server"]["jitter_min_ms"]     = server->jitter_min_ms;
+            json_["server"]["jitter_max_ms"]     = server->jitter_max_ms;
+            json_["server"]["lost_packets"]      = server->lost_packets;
+            json_["server"]["total_packets"]     = server->total_packets;
+            json_["server"]["lost_percent"]      = server->lost_percent;
+            json_["server"]["out_of_order"]      = server->out_of_order;
+            json_["server"]["duplicate_packets"] = server->duplicate_packets;
+        }
+
+        write_terminal(json_.dump(2) + "\n");
     }
 }
 
