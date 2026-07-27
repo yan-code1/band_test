@@ -84,11 +84,11 @@ void Reporter::report_interval(const IntervalSnapshot& snap) {
         std::ostringstream os;
         char line[256];
         std::snprintf(line, sizeof(line),
-            "[%3u] %5.2f-%-5.2f sec %8.2f MBytes  %7.0f %-5s  %6.3fms  "
+            "[%3u] %5.2f-%-5.2f sec %8.2f MBytes  %9.2f %-5s  %6.3fms  "
             "%4llu/%-5llu  %5.2f%%  %3u",
             snap.stream_id,
             snap.start_sec, snap.end_sec,
-            static_cast<double>(snap.bytes) / (1024.0 * 1024.0),  // MBytes
+            static_cast<double>(snap.bytes) / (1000.0 * 1000.0),  // MBytes (1000-based)
             snap.bits_per_second < 1'000'000
                 ? static_cast<double>(snap.bits_per_second) / 1000.0
                 : static_cast<double>(snap.bits_per_second) / 1'000'000.0,
@@ -126,11 +126,11 @@ void Reporter::report_summary(const StatsSummary& local,
 
         char line[256];
         std::snprintf(line, sizeof(line),
-            "[%3u] 0.00-%-5.2f sec %8.2f MBytes  %7.0f %-5s  %6.3fms  "
+            "[%3u] 0.00-%-5.2f sec %8.2f MBytes  %9.2f %-5s  %6.3fms  "
             "%4llu/%-5llu  %5.2f%%  %3u",
             1,
             local.duration_sec,
-            static_cast<double>(local.bytes_received) / (1024.0 * 1024.0),
+            static_cast<double>(local.bytes_received) / (1000.0 * 1000.0),
             local.bits_per_second < 1'000'000
                 ? static_cast<double>(local.bits_per_second) / 1000.0
                 : static_cast<double>(local.bits_per_second) / 1'000'000.0,
@@ -151,7 +151,7 @@ void Reporter::report_summary(const StatsSummary& local,
                 static_cast<unsigned long long>(server->packets_received),
                 static_cast<unsigned long long>(server->total_packets),
                 100.0 - server->lost_percent,
-                static_cast<double>(server->bytes_received) / (1024.0 * 1024.0),
+                static_cast<double>(server->bytes_received) / (1000.0 * 1000.0),
                 server->jitter_ms, server->jitter_min_ms, server->jitter_max_ms);
             os << line << std::endl;
         }
